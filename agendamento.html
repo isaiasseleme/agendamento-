@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agendamento de Entregas - Centro de Distribuição</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://unpkg.com/imask"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#f0f0fd',
+                            100: '#e0e0fc',
+                            200: '#c2c1f7',
+                            300: '#a3a2f3',
+                            400: '#8584ec',
+                            500: '#6665e5',
+                            600: '#5D5CDE',
+                            700: '#4645b3',
+                            800: '#37368f',
+                            900: '#292874'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Estilos dos horários modificados conforme solicitado */
+        .time-slot {
+            @apply cursor-pointer border-2 rounded-md p-3 text-center transition-all duration-200 text-sm shadow-sm;
+        }
+        .time-slot.available {
+            @apply border-gray-300 hover:border-primary-500 bg-white text-gray-800 hover:bg-blue-50 dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 dark:hover:border-primary-500 dark:hover:bg-primary-900/30;
+        }
+        .time-slot.selected {
+            @apply border-primary-600 bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-300 font-medium shadow-md transform scale-105;
+        }
+        .time-slot.unavailable {
+            @apply border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-900/40 dark:text-red-300 cursor-not-allowed;
+        }
+        
+        /* Animação do calendário */
+        .calendar-enter-active, .calendar-leave-active {
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        .calendar-enter-from, .calendar-leave-to {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+        
+        /* Input customizado */
+        .custom-radio {
+            @apply relative cursor-pointer;
+        }
+        .custom-radio input {
+            @apply absolute opacity-0 h-0 w-0;
+        }
+        .custom-radio .radio-label {
+            @apply flex items-center p-3 border-2 border-gray-300 dark:border-gray-600 rounded-lg transition-all;
+        }
+        .custom-radio input:checked + .radio-label {
+            @apply border-primary-600 bg-primary-50 dark:bg-gray-800;
+        }
+        .custom-radio .radio-label:before {
+            content: '';
+            @apply w-5 h-5 mr-2 rounded-full border-2 border-gray-400 dark:border-gray-500 transition-all;
+        }
+        .custom-radio input:checked + .radio-label:before {
+            @apply border-primary-600 bg-primary-600 dark:bg-primary-500;
+        }
+        .custom-radio .radio-label:after {
+            content: '';
+            @apply absolute w-2 h-2 bg-white rounded-full opacity-0 transition-all left-5 top-1/2 transform -translate-y-1/2;
+        }
+        .custom-radio input:checked + .radio-label:after {
+            @apply opacity-100;
+        }
+
+        /* Animações de transição para abas */
+        .fade-enter-active, .fade-leave-active {
+            transition: opacity 0.3s;
+        }
+        .fade-enter-from, .fade-leave-to {
+            opacity: 0;
+        }
+
+        /* Animação slide para modais */
+        .slide-up-enter-active,
+        .slide-up-leave-active {
+            transition: all 0.3s ease-out;
+        }
+        .slide-up-enter-from {
+            transform: translateY(20px);
+            opacity: 0;
+        }
+        .slide-up-leave-to {
+            transform: translateY(20px);
+            opacity: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen">
+    <div id="app" class="container mx-auto p-4 max-w-4xl">
+        <!-- Navegação entre Agendamento e Área de Admin -->
+        <div class="flex justify-end mb-4">
+            <div class="inline-flex rounded-md shadow-sm" role="group">
+                <button 
+                    @click="activeTab = 'agendamento'" 
+                    :class="[
+                        'px-4 py-2 text-sm font-medium rounded-l-lg focus:z-10 focus:outline-none',
+                        activeTab === 'agendamento' 
+                            ? 'bg-primary-600 text-white hover:bg-primary-700' 
+                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600'
+                    ]"
+                >
+                    Agendamento
+                </button>
+                <button 
+                    @click="showAdminAuth" 
+                    :class="[
+                        'px-4 py-2 text-sm font-medium rounded-r-lg focus:z-10 focus:outline-none',
+                        activeTab === 'admin' 
+                            ? 'bg-primary-600 text-white hover:bg-primary-700' 
+                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 border border-r border-t border-b border-gray-300 dark:border-gray-600'
+                    ]"
+                >
+                    Administração
+                </button>
+            </div>
+        </div>
+
+        <!-- Tab de Agendamento -->
+        <transition name="fade" mode="out-in">
+            <div v-if="activeTab === 'agendamento'">
+                <!-- Cabeçalho -->
+                <header class="mb-8 text-center">
+                    <h1 class="text-3xl font-bold text-primary-600 dark:text-primary-400 mb-2">Agendamento de Entregas</h1>
+                    <h2 class="text-xl text-gray-600 dark:text-gray-400">Centro de Distribuição - Joinville/SC</h2>
+                    <div class="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/30 border-l-4 border-yellow-400 text-yellow-800 dark:text-yellow-200 rounded-md">
+                        <p class="font-medium">⚠️ Importante:</p>
+                        <p>O agendamento deve ser realizado com <strong>4 dias de antecedência</strong>.</p>
+                        <p>Entregas fora do horário agendado poderão sofrer atrasos no recebimento.</p>
+                    </div>
+                </header>
+
+                <!-- Formulário de Agendamento -->
+                <form @submit.prevent="submitForm" class="space-y-6">
+                    <!-- Informações da Empresa -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                        <h3 class="text-lg font-semibold mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">Informações da Empresa</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="col-span-1">
+                                <label for="cnpj" class="block text-sm font-medium mb-1">CNPJ <span class="text-red-500">*</span></label>
+                                <input 
+                                    type="text" 
+                                    id="cnpj" 
+                                    v-model="formData.cnpj" 
+                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base"
+                                    placeholder="XX.XXX.XXX/XXXX-XX"
+                                    required
+                                >
+                            </div>
+                            <div class="col-span-1">
+                                <label for="razaoSocial" class="block text-sm font-medium mb-1">Razão Social <span class="text-red-500">*</span></label>
+                                <input 
+                                    type="text" 
+                                    id="razaoSocial" 
+                                    v-model="formData.razaoSocial" 
+                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base"
+                                    required
+                                >
+                            </div>
+                            <div class="col-span-1">
+                                <label for="nomeFantasia" class="block text-sm font-medium mb-1">Nome Fantasia <span class="text-red-500">*</span></label>
+                                <input 
+                                    type="text" 
+                                    id="nomeFantasia" 
+                                    v-model="formData.nomeFantasia" 
+                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base"
+                                    required
+                                >
+                            </div>
+                            <div class="col-span-1">
+                                <label for="notaFiscal" class="block text-sm font-medium mb-1">Nº da Nota Fiscal <span class="text-red-500">*</span></label>
+                                <input 
+                                    type="text" 
+                                    id="notaFiscal" 
+                                    v-model="formData.notaFiscal" 
+                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base"
+                                    required
+                                >
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Informações do Solicitante -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                        <h3 class="text-lg font-semibold mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">Informações do Solicitante</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="col-span-1">
+                                <label for="nomeSolicitante" class="block text-sm font-medium mb-1">Nome do Solicitante <span class="text-red-500">*</span></label>
+                                <input 
+                                    type="text" 
+                                    id="nomeSolicitante" 
+                                    v-model="formData.nomeSolicitante" 
+                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base"
+                                    required
+                                >
+                            </div>
+                            <div class="col-span-1">
+                                <label for="emailSolicitante" class="block text-sm font-medium mb-1">Email do Solicitante <span class="text-red-500">*</span></label>
+                                <input 
+                                    type="email" 
+                                    id="emailSolicitante" 
+                                    v-model="formData.emailSolicitante" 
+                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base"
+                                    required
+                                >
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Informações da Entrega -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                        <h3 class="text-lg font-semibold mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">Informações da Entrega</h3>
+                        
+                        <!-- Local de Entrega -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-2">Local de Entrega <span class="text-red-500">*</span></label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label class="custom-radio">
+                                    <input type="radio" v-model="formData.localEntrega" value="Almoxarifado" name="localEntrega" required>
+                                    <span class="radio-label">Almoxarifado</span>
+                                </label>
+                                <label class="custom-radio">
+                                    <input type="radio" v-model="formData.localEntrega" value="Centro de Distribuição" name="localEntrega" required>
+                                    <span class="radio-label">Centro de Distribuição</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Tipo de Veículo (condicional conforme o local) -->
+                        <div class="mb-4" v-if="formData.localEntrega === 'Almoxarifado'">
+                            <label class="block text-sm font-medium mb-2">Tipo de Veículo - Almoxarifado <span class="text-red-500">*</span></label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label class="custom-radio" v-for="(tipo, index) in tiposVeiculoAlmoxarifado" :key="'almox-'+index">
+                                    <input type="radio" v-model="formData.tipoVeiculoAlmoxarifado" :value="tipo" name="tipoVeiculoAlmoxarifado" required>
+                                    <span class="radio-label">{{ tipo }}</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="mb-4" v-if="formData.localEntrega === 'Centro de Distribuição'">
+                            <label class="block text-sm font-medium mb-2">Tipo de Veículo - Centro de Distribuição <span class="text-red-500">*</span></label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label class="custom-radio" v-for="(tipo, index) in tiposVeiculoCD" :key="'cd-'+index">
+                                    <input type="radio" v-model="formData.tipoVeiculoCD" :value="tipo" name="tipoVeiculoCD" required>
+                                    <span class="radio-label">{{ tipo }}</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Motorista e Placa -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div class="col-span-1">
+                                <label for="motorista" class="block text-sm font-medium mb-1">Motorista Responsável <span class="text-red-500">*</span></label>
+                                <input 
+                                    type="text" 
+                                    id="motorista" 
+                                    v-model="formData.motorista" 
+                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base"
+                                    placeholder="Nome Completo"
+                                    required
+                                >
+                            </div>
+                            <div class="col-span-1">
+                                <label for="placaVeiculo" class="block text-sm font-medium mb-1">Placa do Veículo <span class="text-red-500">*</span></label>
+                                <input 
+                                    type="text" 
+                                    id="placaVeiculo" 
+                                    v-model="formData.placaVeiculo" 
+                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base"
+                                    placeholder="AAA-0000"
+                                    required
+                                >
+                            </div>
+                        </div>
+
+                        <!-- Classificação da Entrega -->
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-2">Classificação da Entrega <span class="text-red-500">*</span></label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label class="custom-radio" v-for="(tipo, index) in classificacaoEntrega" :key="'class-'+index">
+                                    <input type="radio" v-model="formData.classificacaoEntrega" :value="tipo" name="classificacaoEntrega" required>
+                                    <span class="radio-label">{{ tipo }}</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Seletor de Data e Horário -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                        <h3 class="text-lg font-semibold mb-4 border-b pb-2 border-gray-200 dark:border-gray-700">Data e Horário da Entrega</h3>
+                        
+                        <!-- Seletor de Data -->
+                        <div class="mb-6">
+                            <label class="block text-sm font-medium mb-2">Data de Entrega <span class="text-red-500">*</span></label>
+                            <div class="relative">
+                                <input 
+                                    type="text" 
+                                    id="dataEntrega" 
+                                    v-model="formattedSelectedDate" 
+                                    @focus="showCalendar = true"
+                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base cursor-pointer"
+                                    placeholder="Selecione uma data"
+                                    readonly
+                                    required
+                                >
+                                
+                                <!-- Calendário -->
+                                <transition name="calendar">
+                                    <div v-if="showCalendar" class="absolute z-10 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-4 w-full max-w-md">
+                                        <div class="flex justify-between items-center mb-4">
+                                            <button 
+                                                type="button"
+                                                @click="prevMonth" 
+                                                class="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                                                </svg>
+                                            </button>
+                                            <div class="font-medium">{{ currentMonthName }} {{ currentYear }}</div>
+                                            <button 
+                                                type="button"
+                                                @click="nextMonth" 
+                                                class="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        
+                                        <!-- Dias da semana -->
+                                        <div class="grid grid-cols-7 gap-1 mb-2">
+                                            <div v-for="day in daysOfWeek" :key="day" class="text-center text-xs text-gray-500 dark:text-gray-400 font-medium py-1">
+                                                {{ day }}
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Dias do mês -->
+                                        <div class="grid grid-cols-7 gap-1">
+                                            <!-- Espaços vazios para o início do mês -->
+                                            <div 
+                                                v-for="_ in firstDayOfMonth" 
+                                                :key="'empty-'+_" 
+                                                class="h-8 rounded-full"
+                                            ></div>
+                                            
+                                            <!-- Dias do mês -->
+                                            <div 
+                                                v-for="day in daysInMonth" 
+                                                :key="'day-'+day"
+                                                @click="selectDate(day)"
+                                                :class="[
+                                                    'h-8 w-8 flex items-center justify-center rounded-full cursor-pointer text-sm transition-colors',
+                                                    isDateDisabled(day) ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed' : 'hover:bg-primary-100 dark:hover:bg-primary-900/50',
+                                                    isDateSelected(day) ? 'bg-primary-600 text-white hover:bg-primary-700' : '',
+                                                    isToday(day) && !isDateSelected(day) ? 'border border-primary-500' : ''
+                                                ]"
+                                            >
+                                                {{ day }}
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="mt-4 text-right">
+                                            <button 
+                                                type="button"
+                                                @click="showCalendar = false" 
+                                                class="px-3 py-1 text-sm text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-md"
+                                            >
+                                                Fechar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </transition>
+                            </div>
+                        </div>
+                        
+                        <!-- Seletor de Horário (estilo assento de avião) -->
+                        <div v-if="formData.selectedDate">
+                            <label class="block text-sm font-medium mb-2">Horário de Entrega <span class="text-red-500">*</span></label>
+                            
+                            <div class="mb-4 flex items-center justify-center bg-gray-100 dark:bg-gray-700/50 py-3 px-4 rounded-md">
+                                <div class="text-center text-sm font-medium">
+                                    <span class="text-primary-600 dark:text-primary-400">{{ formattedSelectedDate }}</span> - Selecione um horário para entrega
+                                </div>
+                            </div>
+                            
+                            <!-- Visual de janelas de horário como assentos -->
+                            <div class="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-4">
+                                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-4 mx-auto max-w-3xl">
+                                    <div 
+                                        v-for="(slot, index) in timeSlots" 
+                                        :key="'time-'+index"
+                                        @click="selectTimeSlot(slot)"
+                                        :class="[
+                                            'time-slot',
+                                            slot.available ? (slot.selected ? 'selected' : 'available') : 'unavailable'
+                                        ]"
+                                    >
+                                        <div class="flex flex-col items-center">
+                                            <span class="font-medium">{{ slot.time }}</span>
+                                            <span class="text-xs mt-1">
+                                                {{ slot.available ? (slot.selected ? 'Selecionado' : 'Disponível') : 'Ocupado' }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex flex-wrap gap-4 justify-center text-sm border-t border-gray-200 dark:border-gray-700 pt-3">
+                                    <div class="flex items-center">
+                                        <div class="w-4 h-4 mr-2 bg-white border-2 border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded-md shadow-sm"></div>
+                                        <span>Disponível</span>
+                                    </div>
+                                    <div class="flex items-center">
+                                        <div class="w-4 h-4 mr-2 bg-primary-100 dark:bg-primary-900 border-2 border-primary-600 rounded-md shadow-md"></div>
+                                        <span>Selecionado</span>
+                                    </div>
+                                    <div class="flex items-center">
+                                        <div class="w-4 h-4 mr-2 bg-red-50 dark:bg-red-900/40 border-2 border-red-300 dark:border-red-900 rounded-md"></div>
+                                        <span>Ocupado</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Botões de Ação -->
+                    <div class="flex flex-col sm:flex-row gap-3 justify-end">
+                        <button 
+                            type="button" 
+                            @click="resetForm" 
+                            class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                        >
+                            Limpar Formulário
+                        </button>
+                        <button 
+                            type="submit" 
+                            class="px-6 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 font-medium"
+                            :disabled="isSubmitting"
+                        >
+                            <span v-if="isSubmitting">
+                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Enviando...
+                            </span>
+                            <span v-else>Enviar Agendamento</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Tab de Administração -->
+            <div v-else-if="activeTab === 'admin'" class="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                <h2 class="text-2xl font-bold text-primary-600 dark:text-primary-400 mb-6">Área de Administração</h2>
+                
+                <!-- Lista de Agendamentos -->
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold">Agendamentos Cadastrados</h3>
+                        <div class="flex space-x-2">
+                            <button 
+                                @click="refreshAgendamentos" 
+                                class="px-3 py-1 text-sm bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 rounded-md hover:bg-primary-100 dark:hover:bg-primary-900/50"
+                                :class="{ 'animate-spin': refreshing }"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                Atualizar
+                            </button>
+                            <button 
+                                @click="exportCSV" 
+                                class="px-3 py-1 text-sm bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-md hover:bg-green-100 dark:hover:bg-green-900/50"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Exportar CSV
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="overflow-x-auto rounded-lg">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-700">
+                                <tr>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Data</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Horário</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Fornecedor</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Local</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Classificação</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                <tr v-if="agendamentos.length === 0">
+                                    <td colspan="6" class="px-4 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+                                        Nenhum agendamento encontrado
+                                    </td>
+                                </tr>
+                                <tr v-for="(agendamento, index) in agendamentos" :key="index" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                    <td class="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{{ agendamento.data }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{{ agendamento.horario }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{{ agendamento.fornecedor }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{{ agendamento.local }}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">{{ agendamento.classificacao }}</td>
+                                    <td class="px-4 py-3 text-sm">
+                                        <button 
+                                            @click="showDeleteConfirmation(agendamento)" 
+                                            class="px-2 py-1 text-xs text-white bg-red-600 rounded hover:bg-red-700"
+                                        >
+                                            Excluir
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- Informações de Conexão com a Planilha -->
+                <div class="mt-8 bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                    <h3 class="text-md font-medium text-blue-800 dark:text-blue-300 mb-2">Informações de Conexão</h3>
+                    <p class="text-sm text-blue-700 dark:text-blue-400 mb-2">
+                        Os agendamentos estão sendo sincronizados com a planilha:
+                    </p>
+                    <div class="bg-white dark:bg-gray-800 p-2 rounded border border-blue-200 dark:border-blue-800 text-xs font-mono break-all">
+                        https://docs.google.com/spreadsheets/d/e/2PACX-1vQjvHY1BtD4kd3OVbMhRU_UDpjk8EgBv3ScRAZBhjQZH_2cRMnU2-1w8v5a3NTSqgiq2M2lyJXCoWnK/pubhtml
+                    </div>
+                </div>
+            </div>
+        </transition>
+        
+        <!-- Modal de Confirmação -->
+        <div v-if="showConfirmation" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <transition name="slide-up">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-md w-full">
+                    <div class="text-center mb-4">
+                        <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 dark:bg-green-900/30 mb-4">
+                            <svg class="h-6 w-6 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Agendamento Enviado!</h3>
+                        <p class="text-gray-600 dark:text-gray-400 mt-2">
+                            Seu agendamento foi enviado com sucesso e registrado na planilha de controle.
+                        </p>
+                    </div>
+                    
+                    <div class="mt-4 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-md">
+                        <h4 class="font-medium mb-2">Resumo do Agendamento:</h4>
+                        <ul class="text-sm space-y-1">
+                            <li><span class="font-medium">Empresa:</span> {{ formData.nomeFantasia }}</li>
+                            <li><span class="font-medium">Data:</span> {{ formattedSelectedDate }}</li>
+                            <li><span class="font-medium">Horário:</span> {{ selectedTimeDisplay }}</li>
+                            <li><span class="font-medium">Local:</span> {{ formData.localEntrega }}</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="mt-5">
+                        <button 
+                            @click="closeConfirmation" 
+                            class="w-full px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+                        >
+                            Entendido
+                        </button>
+                    </div>
+                </div>
+            </transition>
+        </div>
+        
+        <!-- Modal de Autenticação Admin -->
+        <div v-if="showAdminModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <transition name="slide-up">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-md w-full">
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Acesso à Área de Administração</h3>
+                    
+                    <div class="mb-4">
+                        <label for="adminPassword" class="block text-sm font-medium mb-1">Senha de Administrador</label>
+                        <input 
+                            type="password" 
+                            id="adminPassword" 
+                            v-model="adminPassword" 
+                            class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-base"
+                            placeholder="Digite a senha de administrador"
+                        >
+                        <p v-if="adminError" class="mt-1 text-sm text-red-600 dark:text-red-400">{{ adminError }}</p>
+                    </div>
+                    
+                    <div class="flex justify-end space-x-3">
+                        <button 
+                            @click="cancelAdminAuth" 
+                            class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button 
+                            @click="authenticateAdmin" 
+                            class="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+                        >
+                            Acessar
+                        </button>
+                    </div>
+                </div>
+            </transition>
+        </div>
+        
+        <!-- Modal de Confirmação de Exclusão -->
+        <div v-if="showDeleteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <transition name="slide-up">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-md w-full">
+                    <div class="text-center mb-4">
+                        <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/30 mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </div>
+                        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Confirmar Exclusão</h3>
+                        <p class="text-gray-600 dark:text-gray-400 mt-2">
+                            Você está prestes a excluir o seguinte agendamento:
+                        </p>
+                    </div>
+                    
+                    <div class="mt-4 bg-gray-50 dark:bg-gray-700/50 p-4 rounded-md">
+                        <ul class="text-sm space-y-1">
+                            <li><span class="font-medium">Data:</span> {{ agendamentoParaExcluir?.data }}</li>
+                            <li><span class="font-medium">Horário:</span> {{ agendamentoParaExcluir?.horario }}</li>
+                            <li><span class="font-medium">Fornecedor:</span> {{ agendamentoParaExcluir?.fornecedor }}</li>
+                        </ul>
+                    </div>
+                    
+                    <p class="mt-4 text-sm text-red-600 dark:text-red-400">
+                        Esta ação não pode ser desfeita.
+                    </p>
+                    
+                    <div class="mt-5 flex justify-end space-x-3">
+                        <button 
+                            @click="cancelDelete" 
+                            class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        <button 
+                            @click="confirmDelete" 
+                            class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                        >
+                            Excluir
+                        </button>
+                    </div>
+                </div>
+            </transition>
+        </div>
+        
+        <!-- Mensagem de Modo Escuro/Claro -->
+        <div class="fixed bottom-4 right-4">
+            <button 
+                @click="toggleDarkMode" 
+                class="p-2 bg-white dark:bg-gray-800 rounded-full shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+                <svg v-if="isDarkMode" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Verificar preferência de tema escuro
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+            if (event.matches) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        });
+
+        const { createApp, ref, computed, onMounted, watch } = Vue;
+        
+        createApp({
+            setup() {
+                // Estado do tema
+                const isDarkMode = ref(document.documentElement.classList.contains('dark'));
+                
+                // Estado da navegação
+                const activeTab = ref('agendamento');
+                const showAdminModal = ref(false);
+                const adminPassword = ref('');
+                const adminError = ref('');
+                
+                // Estado de administração
+                const agendamentos = ref([]);
+                const refreshing = ref(false);
+                const showDeleteModal = ref(false);
+                const agendamentoParaExcluir = ref(null);
+                
+                // Estado do formulário
+                const formData = ref({
+                    cnpj: '',
+                    razaoSocial: '',
+                    nomeFantasia: '',
+                    notaFiscal: '',
+                    nomeSolicitante: '',
+                    emailSolicitante: '',
+                    localEntrega: '',
+                    tipoVeiculoAlmoxarifado: '',
+                    tipoVeiculoCD: '',
+                    motorista: '',
+                    placaVeiculo: '',
+                    classificacaoEntrega: '',
+                    selectedDate: null,
+                    selectedTime: null
+                });
+                
+                // Opções de formulário
+                const tiposVeiculoAlmoxarifado = ref([
+                    '3/4 (Toco ou VUC)',
+                    'Caminhão Toco',
+                    'Caminhão Truck',
+                    'Carreta',
+                    'Bitrem',
+                    'Não se aplica'
+                ]);
+                
+                const tiposVeiculoCD = ref([
+                    'Caminhão Truck',
+                    'Carreta',
+                    'Não se aplica'
+                ]);
+                
+                const classificacaoEntrega = ref([
+                    'Matéria Prima',
+                    'Resina',
+                    'Itens de consumo (produtos de higiene e limpeza, material de escritório, alimentícios)',
+                    'EPI\'s (Equipamento de Proteção Individual)',
+                    'Embalagens (caixa de papelão, sacos plásticos, saco de ráfia, entre outros)'
+                ]);
+
+                // Estados do calendário
+                const showCalendar = ref(false);
+                const currentDate = ref(new Date());
+                const currentMonth = ref(currentDate.value.getMonth());
+                const currentYear = ref(currentDate.value.getFullYear());
+                const daysOfWeek = ref(['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']);
+                
+                // Estados do agendamento
+                const timeSlots = ref([]);
+                const isSubmitting = ref(false);
+                const showConfirmation = ref(false);
+                
+                // Horários disponíveis (8h às 18h, intervalos de 30min)
+                const generateTimeSlots = () => {
+                    const slots = [];
+                    // Verificar horários já agendados para esta data
+                    const dataFormatada = formData.value.selectedDate.toLocaleDateString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric'
+                    });
+                    
+                    // Encontrar agendamentos desta data
+                    const agendamentosData = agendamentos.value.filter(a => a.data === dataFormatada);
+                    const horariosOcupados = agendamentosData.map(a => a.horario);
+                    
+                    for (let hour = 8; hour < 18; hour++) {
+                        // Horário cheio (8:00, 9:00, etc)
+                        const timeSlot1 = `${hour}:00`;
+                        slots.push({
+                            time: timeSlot1,
+                            available: !horariosOcupados.includes(timeSlot1),
+                            selected: false
+                        });
+                        
+                        // Horário e meia (8:30, 9:30, etc)
+                        const timeSlot2 = `${hour}:30`;
+                        slots.push({
+                            time: timeSlot2,
+                            available: !horariosOcupados.includes(timeSlot2),
+                            selected: false
+                        });
+                    }
+                    // Último horário (18:00)
+                    const lastSlot = '18:00';
+                    slots.push({
+                        time: lastSlot,
+                        available: !horariosOcupados.includes(lastSlot),
+                        selected: false
+                    });
+                    
+                    return slots;
+                };
+                
+                // Computed properties para o calendário
+                const firstDayOfMonth = computed(() => {
+                    const firstDay = new Date(currentYear.value, currentMonth.value, 1).getDay();
+                    return firstDay;
+                });
+                
+                const daysInMonth = computed(() => {
+                    return new Date(currentYear.value, currentMonth.value + 1, 0).getDate();
+                });
+                
+                const currentMonthName = computed(() => {
+                    const options = { month: 'long' };
+                    return new Date(currentYear.value, currentMonth.value).toLocaleDateString('pt-BR', options);
+                });
+                
+                const formattedSelectedDate = computed(() => {
+                    if (!formData.value.selectedDate) return '';
+                    
+                    return formData.value.selectedDate.toLocaleDateString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric'
+                    });
+                });
+                
+                const selectedTimeDisplay = computed(() => {
+                    if (!formData.value.selectedTime) return '-';
+                    return formData.value.selectedTime;
+                });
+                
+                // Métodos para navegação do calendário
+                const prevMonth = () => {
+                    if (currentMonth.value === 0) {
+                        currentMonth.value = 11;
+                        currentYear.value--;
+                    } else {
+                        currentMonth.value--;
+                    }
+                };
+                
+                const nextMonth = () => {
+                    if (currentMonth.value === 11) {
+                        currentMonth.value = 0;
+                        currentYear.value++;
+                    } else {
+                        currentMonth.value++;
+                    }
+                };
+                
+                // Validações de data
+                const isDateDisabled = (day) => {
+                    const date = new Date(currentYear.value, currentMonth.value, day);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    
+                    // Requisito: agendamento com 4 dias de antecedência
+                    const minDate = new Date(today);
+                    minDate.setDate(today.getDate() + 4);
+                    
+                    // Verifica se é fim de semana
+                    const dayOfWeek = date.getDay();
+                    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                    
+                    // Desabilita datas passadas, fins de semana e datas com menos de 4 dias de antecedência
+                    return date < minDate || isWeekend;
+                };
+                
+                const isDateSelected = (day) => {
+                    if (!formData.value.selectedDate) return false;
+                    
+                    const selected = formData.value.selectedDate;
+                    return selected.getDate() === day && 
+                           selected.getMonth() === currentMonth.value && 
+                           selected.getFullYear() === currentYear.value;
+                };
+                
+                const isToday = (day) => {
+                    const today = new Date();
+                    return today.getDate() === day && 
+                           today.getMonth() === currentMonth.value && 
+                           today.getFullYear() === currentYear.value;
+                };
+                
+                // Seleção de data e horário
+                const selectDate = (day) => {
+                    if (isDateDisabled(day)) return;
+                    
+                    // Define a data selecionada
+                    formData.value.selectedDate = new Date(currentYear.value, currentMonth.value, day);
+                    
+                    // Fecha o calendário
+                    showCalendar.value = false;
+                    
+                    // Gera novos horários para a data selecionada
+                    timeSlots.value = generateTimeSlots();
+                    
+                    // Limpa qualquer horário selecionado anteriormente
+                    formData.value.selectedTime = null;
+                };
+                
+                const selectTimeSlot = (slot) => {
+                    if (!slot.available) return;
+                    
+                    // Desmarca todos os slots
+                    timeSlots.value.forEach(s => s.selected = false);
+                    
+                    // Marca o slot selecionado
+                    slot.selected = true;
+                    
+                    // Armazena o horário selecionado
+                    formData.value.selectedTime = slot.time;
+                };
+                
+                // Métodos do formulário
+                const resetForm = () => {
+                    // Reset do formulário
+                    formData.value = {
+                        cnpj: '',
+                        razaoSocial: '',
+                        nomeFantasia: '',
+                        notaFiscal: '',
+                        nomeSolicitante: '',
+                        emailSolicitante: '',
+                        localEntrega: '',
+                        tipoVeiculoAlmoxarifado: '',
+                        tipoVeiculoCD: '',
+                        motorista: '',
+                        placaVeiculo: '',
+                        classificacaoEntrega: '',
+                        selectedDate: null,
+                        selectedTime: null
+                    };
+                    
+                    // Reset dos horários
+                    timeSlots.value = [];
+                };
+                
+                const submitForm = async () => {
+                    // Validar se uma data e horário foram selecionados
+                    if (!formData.value.selectedDate || !formData.value.selectedTime) {
+                        alert('Por favor, selecione uma data e horário para a entrega.');
+                        return;
+                    }
+                    
+                    isSubmitting.value = true;
+                    
+                    // Criar objeto do agendamento
+                    const novoAgendamento = {
+                        data: formattedSelectedDate.value,
+                        horario: formData.value.selectedTime,
+                        fornecedor: formData.value.nomeFantasia,
+                        local: formData.value.localEntrega,
+                        classificacao: formData.value.classificacaoEntrega,
+                        cnpj: formData.value.cnpj,
+                        razaoSocial: formData.value.razaoSocial,
+                        notaFiscal: formData.value.notaFiscal,
+                        nomeSolicitante: formData.value.nomeSolicitante,
+                        emailSolicitante: formData.value.emailSolicitante,
+                        tipoVeiculo: formData.value.localEntrega === 'Almoxarifado' 
+                            ? formData.value.tipoVeiculoAlmoxarifado 
+                            : formData.value.tipoVeiculoCD,
+                        motorista: formData.value.motorista,
+                        placaVeiculo: formData.value.placaVeiculo
+                    };
+                    
+                    // Simulando envio para a API do Google Sheets
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    
+                    // Adicionar à lista local de agendamentos
+                    agendamentos.value.push(novoAgendamento);
+                    
+                    // Mostrar confirmação
+                    showConfirmation.value = true;
+                    isSubmitting.value = false;
+                };
+                
+                const closeConfirmation = () => {
+                    showConfirmation.value = false;
+                    resetForm();
+                };
+                
+                // Métodos de administração
+                const showAdminAuth = () => {
+                    showAdminModal.value = true;
+                    adminPassword.value = '';
+                    adminError.value = '';
+                };
+                
+                const authenticateAdmin = () => {
+                    // Simular autenticação (senha fixa para demonstração)
+                    if (adminPassword.value === 'admin123') {
+                        activeTab.value = 'admin';
+                        showAdminModal.value = false;
+                        adminError.value = '';
+                        
+                        // Carregar agendamentos
+                        refreshAgendamentos();
+                    } else {
+                        adminError.value = 'Senha incorreta. Tente novamente.';
+                    }
+                };
+                
+                const cancelAdminAuth = () => {
+                    showAdminModal.value = false;
+                    adminPassword.value = '';
+                    adminError.value = '';
+                };
+                
+                const refreshAgendamentos = async () => {
+                    refreshing.value = true;
+                    
+                    // Simular carregamento dos dados da planilha
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // Se não houver agendamentos ainda, criar alguns exemplos
+                    if (agendamentos.value.length === 0) {
+                        // Gerar algumas datas futuras para exemplo
+                        const dataHoje = new Date();
+                        const data1 = new Date(dataHoje);
+                        data1.setDate(dataHoje.getDate() + 5);
+                        const data2 = new Date(dataHoje);
+                        data2.setDate(dataHoje.getDate() + 6);
+                        const data3 = new Date(dataHoje);
+                        data3.setDate(dataHoje.getDate() + 7);
+                        
+                        // Adicionar exemplos
+                        agendamentos.value = [
+                            {
+                                data: data1.toLocaleDateString('pt-BR'),
+                                horario: '09:00',
+                                fornecedor: 'Fornecedor ABC Ltda',
+                                local: 'Centro de Distribuição',
+                                classificacao: 'Matéria Prima',
+                                cnpj: '12.345.678/0001-90',
+                                razaoSocial: 'Empresa ABC Comercio e Distribuição Ltda',
+                                motorista: 'João Silva'
+                            },
+                            {
+                                data: data1.toLocaleDateString('pt-BR'),
+                                horario: '14:30',
+                                fornecedor: 'Distribuidora XYZ',
+                                local: 'Almoxarifado',
+                                classificacao: 'Resina',
+                                cnpj: '98.765.432/0001-10',
+                                razaoSocial: 'XYZ Produtos Industriais S.A.',
+                                motorista: 'Carlos Souza'
+                            },
+                            {
+                                data: data2.toLocaleDateString('pt-BR'),
+                                horario: '10:30',
+                                fornecedor: 'Embalagens Rápidas',
+                                local: 'Centro de Distribuição',
+                                classificacao: 'Embalagens (caixa de papelão, sacos plásticos, saco de ráfia, entre outros)',
+                                cnpj: '45.678.901/0001-23',
+                                razaoSocial: 'Embalagens Rápidas Indústria e Comércio Ltda',
+                                motorista: 'Pedro Oliveira'
+                            },
+                            {
+                                data: data3.toLocaleDateString('pt-BR'),
+                                horario: '08:00',
+                                fornecedor: 'Segurança Total',
+                                local: 'Almoxarifado',
+                                classificacao: 'EPI\'s (Equipamento de Proteção Individual)',
+                                cnpj: '56.789.012/0001-34',
+                                razaoSocial: 'Segurança Total Distribuidora de EPIs Ltda',
+                                motorista: 'Ana Paula Santos'
+                            }
+                        ];
+                    }
+                    
+                    refreshing.value = false;
+                };
+                
+                const showDeleteConfirmation = (agendamento) => {
+                    agendamentoParaExcluir.value = agendamento;
+                    showDeleteModal.value = true;
+                };
+                
+                const cancelDelete = () => {
+                    showDeleteModal.value = false;
+                    agendamentoParaExcluir.value = null;
+                };
+                
+                const confirmDelete = () => {
+                    // Remover agendamento da lista
+                    const index = agendamentos.value.findIndex(a => 
+                        a.data === agendamentoParaExcluir.value.data && 
+                        a.horario === agendamentoParaExcluir.value.horario &&
+                        a.fornecedor === agendamentoParaExcluir.value.fornecedor
+                    );
+                    
+                    if (index !== -1) {
+                        agendamentos.value.splice(index, 1);
+                    }
+                    
+                    // Fechar modal
+                    showDeleteModal.value = false;
+                    agendamentoParaExcluir.value = null;
+                };
+                
+                const exportCSV = () => {
+                    // Criar cabeçalho CSV
+                    let csv = 'Data,Horário,Fornecedor,Local,Classificação,CNPJ,Razão Social,Motorista\n';
+                    
+                    // Adicionar linhas
+                    agendamentos.value.forEach(agendamento => {
+                        const row = [
+                            agendamento.data,
+                            agendamento.horario,
+                            agendamento.fornecedor,
+                            agendamento.local,
+                            agendamento.classificacao,
+                            agendamento.cnpj,
+                            agendamento.razaoSocial,
+                            agendamento.motorista
+                        ];
+                        
+                        // Escapar campos com vírgulas
+                        const escapedRow = row.map(field => {
+                            if (field && field.includes(',')) {
+                                return `"${field}"`;
+                            }
+                            return field || '';
+                        });
+                        
+                        csv += escapedRow.join(',') + '\n';
+                    });
+                    
+                    // Criar blob e link para download
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    
+                    link.setAttribute('href', url);
+                    link.setAttribute('download', 'agendamentos.csv');
+                    link.style.visibility = 'hidden';
+                    
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                };
+                
+                const toggleDarkMode = () => {
+                    isDarkMode.value = !isDarkMode.value;
+                    if (isDarkMode.value) {
+                        document.documentElement.classList.add('dark');
+                    } else {
+                        document.documentElement.classList.remove('dark');
+                    }
+                };
+                
+                // Inicialização
+                onMounted(() => {
+                    // Configurar máscaras de entrada
+                    const cnpjMask = IMask(document.getElementById('cnpj'), {
+                        mask: '00.000.000/0000-00'
+                    });
+                    
+                    const placaMask = IMask(document.getElementById('placaVeiculo'), {
+                        mask: 'aaa-0000'
+                    });
+                    
+                    // Pré-carregar alguns agendamentos de exemplo
+                    refreshAgendamentos();
+                });
+                
+                return {
+                    formData,
+                    tiposVeiculoAlmoxarifado,
+                    tiposVeiculoCD,
+                    classificacaoEntrega,
+                    showCalendar,
+                    currentMonth,
+                    currentYear,
+                    daysOfWeek,
+                    daysInMonth,
+                    firstDayOfMonth,
+                    currentMonthName,
+                    formattedSelectedDate,
+                    timeSlots,
+                    isSubmitting,
+                    showConfirmation,
+                    selectedTimeDisplay,
+                    isDarkMode,
+                    activeTab,
+                    showAdminModal,
+                    adminPassword,
+                    adminError,
+                    agendamentos,
+                    refreshing,
+                    showDeleteModal,
+                    agendamentoParaExcluir,
+                    prevMonth,
+                    nextMonth,
+                    isDateDisabled,
+                    isDateSelected,
+                    isToday,
+                    selectDate,
+                    selectTimeSlot,
+                    resetForm,
+                    submitForm,
+                    closeConfirmation,
+                    showAdminAuth,
+                    authenticateAdmin,
+                    cancelAdminAuth,
+                    refreshAgendamentos,
+                    showDeleteConfirmation,
+                    cancelDelete,
+                    confirmDelete,
+                    exportCSV,
+                    toggleDarkMode
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
